@@ -6,10 +6,10 @@
 #include <zephyr/drivers/uart.h>
 
 #define STACKSIZE 1024
-#define RECEIVE_BUFF_SIZE 20
+#define RECEIVE_BUFF_SIZE 10
 #define RECEIVE_TIMEOUT 100
 
-#define THREAD0_PRIORITY 6
+#define THREAD0_PRIORITY 7
 #define THREAD1_PRIORITY 7
 
 
@@ -50,12 +50,10 @@ void setLedButRTDB(RTDB *rtdb, bool *val){
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data){
 	switch(evt->type){
 		case UART_RX_RDY:
-			for(int i = 0; i < RECEIVE_BUFF_SIZE; i++){
-				printk("%c, ", rx_buf[i]);
-			}
+			
 			break;
 		case UART_RX_DISABLED:
-			uart_rx_enable(dev ,rx_buf,sizeof rx_buf,RECEIVE_TIMEOUT);
+			uart_rx_enable(dev, rx_buf, sizeof rx_buf, RECEIVE_TIMEOUT);
 			break;
 		default:
 			break;
@@ -98,7 +96,13 @@ void thread1(void){
 
     while(1){
         printk("Thread 1\n");
-
+		
+		printk("{");
+		for(int i = 0; i < RECEIVE_BUFF_SIZE; i++){
+			printk("%c, ", rx_buf[i]);
+		}
+		printk("}\n");
+		
 
         k_busy_wait(1000000);
     }
