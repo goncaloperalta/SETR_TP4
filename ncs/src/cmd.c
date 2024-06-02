@@ -1,34 +1,56 @@
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/drivers/uart.h>
+
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 #include "cmd.h"
+#include "main.h"
+
+extern const struct gpio_dt_spec button_1;
+extern const struct gpio_dt_spec button_2;
+extern const struct gpio_dt_spec button_3;
+extern const struct gpio_dt_spec button_4;
+
+extern const struct gpio_dt_spec led_1;
+extern const struct gpio_dt_spec led_2;
+extern const struct gpio_dt_spec led_3;
+extern const struct gpio_dt_spec led_4;
+
+extern int timer;
 
 static unsigned char UARTRxBuffer[UART_RX_SIZE];
 static unsigned char rxBufLen = 0; 
 static unsigned char UARTTxBuffer[UART_TX_SIZE];
 static unsigned char txBufLen = 0;
 
-int cmdProcessor(void){
-	int i, sizeCMD = 0, err = 0;
-	unsigned char type = 0; // Sensor type
+int cmdProcessor(RTDB *database){
+	int i, sizeCMD = 0;
+	unsigned char type = 0; // Led number
 	unsigned char expectedChecksum = 0;
 	char receivedChecksum[4], checksum[4];
-	char txCmd[UART_TX_SIZE], data_temp[4], data_hum[4], data_co2[6];
+	char txCmd[UART_TX_SIZE];
+	unsigned char val[4];
 
 	if(rxBufLen == 0){
 		return EMPTY_BUFFER;
 	}
 		
-	for(i = 0; i < rxBufLen; i++){
-		if(UARTRxBuffer[i] == SOF_SYM){
-			break;
-		}
+	i = 0;
+	if(UARTRxBuffer[i] != SOF_SYM){
+		return MISSING_SOF;
 	}
 	
+	
 	if(i < rxBufLen){
-		switch(UARTRxBuffer[i+1]){
+		switch(UARTRxBuffer[i+1]) {
             // Commands
             // # B [CS] ! 					- Read button state
             // # L [1/2/3/4] [1/0] [CS] ! 	- Set LED state
@@ -52,18 +74,23 @@ int cmdProcessor(void){
 					clear_rx_cmd();
 					return WRONG_CS;
 				}
-				
+
+				if (database->but[0]) {
+
+				}
 				// Create a response command
-				
 				txCmd[0] = '#'; 		 // SOF
-				txCmd[1] = 'a';  		 // a
-				
-                sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 12));
-				txCmd[13] = checksum[0]; // CS
-				txCmd[14] = checksum[1]; // CS
-				txCmd[15] = checksum[2]; // CS
-				txCmd[16] = '!'; // EOF
-				sizeCMD = 17;
+				txCmd[1] = 'b';  		 // b
+				txCmd[2] = database->but[0] ? '1' : '0';
+				txCmd[3] = database->but[1] ? '1' : '0';
+				txCmd[4] = database->but[2] ? '1' : '0';
+				txCmd[5] = database->but[3] ? '1' : '0';
+                sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 5));
+				txCmd[6] = checksum[0]; // CS
+				txCmd[7] = checksum[1]; // CS
+				txCmd[8] = checksum[2]; // CS
+				txCmd[9] = '!'; // EOF
+				sizeCMD = 10;
 
 				// Send through the Transmiter buffer
 				clear_tx_cmd();
@@ -74,10 +101,11 @@ int cmdProcessor(void){
 				clear_rx_cmd();
 				return SUCCESS;
 	
-			case 'W': // #P[t/h/c][CS]!
+			case 'L': // #L[1/2/3/4][CS]!
 				// Validate frame structure
 				type = UARTRxBuffer[i+2];
-				if(type != 't' && type != 'h' && type != 'c'){ // #P[t/h],,,!
+				int numero = type - '0';
+				if(numero<1 || numero>4){ // #L[1/2/3/4],,,!
 					clear_rx_cmd();
 					return MISSING_SENSOR_TYPE;
 				}
@@ -96,45 +124,29 @@ int cmdProcessor(void){
 					return WRONG_CS;
 				}
 				
-				// Create a response command
-				if(type == 'c'){
-					if((err = getSensorReading(data_co2, type)) == BAD_PARAMETER){
-						clear_rx_cmd();
-						return err;
-					}
-				} else{
-					if((err = getSensorReading(data_temp, type)) == BAD_PARAMETER){
-						clear_rx_cmd();
-						return err;
-					}
+				// Toggle Led
+				if (numero == 1) {
+					database->led[0] = !database->led[0];
+				}
+				else if (numero == 2) {
+					database->led[1] = !database->led[1];
+				}
+				else if (numero == 3) {
+					database->led[2] = !database->led[2];
+				}
+				else {
+					database->led[3] = !database->led[3];
 				}
 
+				// Create a response command
 				txCmd[0] = '#';  // SOF
-				txCmd[1] = 'p';  // p
-				txCmd[2] = type; // sensor type (same has the one received)
-				if(type != 'c'){
-					txCmd[3] = data_temp[0]; // DATA 
-					txCmd[4] = data_temp[1]; // DATA
-					txCmd[5] = data_temp[2]; // DATA
-					sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 5));
-					txCmd[6] = checksum[0]; // CS
-					txCmd[7] = checksum[1]; // CS
-					txCmd[8] = checksum[2];	// CS
-					txCmd[9] = '!'; // EOF
-					sizeCMD = 10;
-				} else{ // Co2 needs 5 digits for the data
-					txCmd[3] = data_co2[0]; // DATA 
-					txCmd[4] = data_co2[1]; // DATA
-					txCmd[5] = data_co2[2]; // DATA
-					txCmd[6] = data_co2[3]; // DATA
-					txCmd[7] = data_co2[4]; // DATA
-					sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 7));
-					txCmd[8] = checksum[0]; // CS
-					txCmd[9] = checksum[1]; // CS
-					txCmd[10] = checksum[2]; // CS
-					txCmd[11] = '!'; // EOF
-					sizeCMD = 12;
-				}
+				txCmd[1] = 'l';  // p
+				sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 1));
+				txCmd[2] = checksum[0]; // CS
+				txCmd[3] = checksum[1]; // CS
+				txCmd[4] = checksum[2]; // CS
+				txCmd[5] = '!'; // EOF
+				sizeCMD = 6;
 
 				// Send through the Transmiter buffer
 				clear_tx_cmd();
@@ -144,7 +156,8 @@ int cmdProcessor(void){
 
 				clear_rx_cmd();
 				return SUCCESS;
-			case 'L': // #L[CS]!
+
+			case 'A': // #A[CS]!
 				// Validate frame structure
 				if(UARTRxBuffer[i+5] != EOF_SYM){
 					resetRxBuffer();
@@ -158,27 +171,83 @@ int cmdProcessor(void){
 					clear_rx_cmd();
 					return WRONG_CS;
 				}
+				
+				// Valor anVal da ADC
+				if (database->anVal >= 100) {
+        			val[0] = (database->anVal / 100) + '0';
+        			database->anVal %= 100;
+    			}
+				else {
+					val[0] = '0';
+				}
+    			if (database->anVal >= 10) {
+        			val[1] = (database->anVal / 10) + '0';
+        			database->anVal %= 10;
+    			}
+				else {
+					val[1] = '1';
+				}
+    			val[2] = database->anVal + '0';
 
-				printf("\n---- Printing variables History ----\n");
-				printf("\n");
+				// Create a response command
+				txCmd[0] = '#';  // SOF
+				txCmd[1] = 'a';  // a
+				txCmd[2] = val[0];
+				txCmd[3] = val[1];
+				txCmd[4] = val[2];
+				sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 4));
+				txCmd[5] = checksum[0]; // CS
+				txCmd[6] = checksum[1]; // CS
+				txCmd[7] = checksum[2]; // CS
+				txCmd[8] = '!'; // EOF
+				sizeCMD = 9;
+
+				// Send through the Transmiter buffer
+				clear_tx_cmd();
+				for(int j = 0; j < sizeCMD; j++){
+					txChar(txCmd[j]);
+				}
+
 				clear_rx_cmd();
 				return SUCCESS;
-			case 'R': // #R[CS]!
+			case 'U': // #U[val][CS]!
 				// Validate frame structure
-				if(UARTRxBuffer[i+5] != EOF_SYM){
+				if(UARTRxBuffer[i+7] != EOF_SYM){
 					resetRxBuffer();
 					return MISSING_EOF;
 				}
 				// Validate Checksum
-				receivedChecksum[0] = UARTRxBuffer[i+2];
-				receivedChecksum[1] = UARTRxBuffer[i+3];
-				receivedChecksum[2] = UARTRxBuffer[i+4];
-				expectedChecksum = calcChecksum(&(UARTRxBuffer[i+1]), 1);
+				receivedChecksum[0] = UARTRxBuffer[i+4];
+				receivedChecksum[1] = UARTRxBuffer[i+5];
+				receivedChecksum[2] = UARTRxBuffer[i+6];
+				expectedChecksum = calcChecksum(&(UARTRxBuffer[i+1]), 3);
 				if(atoi(receivedChecksum) != expectedChecksum){
 					clear_rx_cmd();
 					return WRONG_CS;
 				}
+				
+				int digito_x = UARTRxBuffer[i+2] - '0';
+				int digito_x1 = UARTRxBuffer[i+3] - '0';
+				timer = digito_x*10 + digito_x1;
 
+				//printk ("Tempo de espera: %d\n", timer);
+				// Create a response command
+				txCmd[0] = '#';  // SOF
+				txCmd[1] = 'u';  // u
+				txCmd[2] = UARTRxBuffer[i+2];
+				txCmd[3] = UARTRxBuffer[i+3];
+				sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(txCmd[1]), 3));
+				txCmd[4] = checksum[0]; // CS
+				txCmd[5] = checksum[1]; // CS
+				txCmd[6] = checksum[2]; // CS
+				txCmd[7] = '!'; // EOF
+				sizeCMD = 8;
+
+				// Send through the Transmiter buffer
+				clear_tx_cmd();
+				for(int j = 0; j < sizeCMD; j++){
+					txChar(txCmd[j]);
+				}
 				clear_rx_cmd();
 				return SUCCESS;
 			default:
@@ -187,7 +256,7 @@ int cmdProcessor(void){
 		}
 	}
 	resetRxBuffer();
-	return MISSING_SOF;
+	return SUCCESS;
 }
 
 unsigned char calcChecksum(unsigned char *buf, int nbytes){
@@ -284,17 +353,23 @@ int clear_tx_cmd(){
 }
 
 void print_rx(){
-	printf("\n ------ Printing RX Buffer ------ \n {");
-	for(int i = 0; i < UART_RX_SIZE; i++){
-		printf("'%c',", UARTRxBuffer[i]);
+	printk("\n ------ Code ------ \n {");
+	for(int i = 0; UARTRxBuffer[i] != '\0'; i++){
+		printk("'%c',", UARTRxBuffer[i]);
 	}
-	printf("}\nBuffer length: %d\n", rxBufLen);
+	memset(UARTRxBuffer, 0, sizeof(UARTRxBuffer));
 }
 
 void print_tx(){
-	printf("\n ------ Printing TX Buffer ------ \n {");
-	for(int i = 0; i < UART_TX_SIZE; i++){
-		printf("'%c',", UARTTxBuffer[i]);
+	printk("\n ------ Response ------ \n");
+	printk("{");
+
+	for(int i = 0; UARTTxBuffer[i] != '\0'; i++){
+		printk("'%c'", UARTTxBuffer[i]);
+		if (UARTTxBuffer[i] != '!') {
+			printk(",");
+		}
 	}
-	printf("}\nBuffer length: %d\n\n", txBufLen);
+
+	printk("}\n");
 }
