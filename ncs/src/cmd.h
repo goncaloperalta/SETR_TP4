@@ -14,6 +14,8 @@
 #ifndef CMD_H_
 #define CMD_H_
 
+#include "main.h"
+
 #define UART_RX_SIZE 20 	/**< Maximum size of the RX buffer */ 
 #define UART_TX_SIZE 20 	/**< Maximum size of the TX buffer */ 
 #define SOF_SYM '#'	        /**< Start of Frame Symbol */
@@ -61,7 +63,7 @@
  * </ul>
  * @return EMPTY_BUFFER if Rx Buffer is empty, MISSING_EOF if '!' is not found, WRONG_CS if checksum is wrong, MISSING_SENSOR_TYPE sensor type is not found (for 'P' CMD), MISSING_SOF if a '#' is not found and UNKNOWN_CMD if the CMD is not identified
  */
-int cmdProcessor(void);
+int cmdProcessor(RTDB *database);
 
 /**
  * @brief Adds a character to the Rx Buffer
@@ -156,39 +158,5 @@ void print_rx();
  * @return void
 */
 void print_tx();
-
-/**
- * @brief Changes the contens of buf to a sensor reading in string form
- * 
- * Gets a sensor reading, converts it to a string of digits and sets it to the content of buf. <br>
- * There are 3 types of sensors temperature, humidity and co2: <br>
- * Temperature [-50, 60]ºC: <br>
- * <ul>
- *      <li> buf[0] &rarr; it's set to '+' or '-' <br> 
- *      <li> buf[1] &rarr; it's set most significant digit, if number is less than 10 gets set to '0' <br>
- *      <li> buf[2] &rarr; it's set less significant digit <br>
- *      <li> Example: 7 &rarr; '+','0','7' <br>
- * </ul>
- * Humidity [0, 100]%: <br>
- * <ul>
- *      <li> buf[0] &rarr; it's set most significant digit, if number is less than 100 gets set to '0' <br>
- *      <li> buf[1] &rarr; it's set second most significant digit, if number is less than 10 gets set to '0' <br>
- *      <li> buf[2] &rarr; it's set less significant digit <br>
- *      <li> Example: 7 &rarr; '0','0','7' <br>
- * </ul>
- * Co2 [400, 20000]ppm: <br>
- * <ul>
- *      <li> buf[0] &rarr; it's set most significant digit, if number is less than 10000 gets set to '0' <br>
- *      <li> buf[1] &rarr; it's set second most significant digit, if number is less than 1000 gets set to '0' <br>
- *      <li> buf[2] &rarr; it's set third most significant digit <br>
- *      <li> buf[3] &rarr; it's set forth most significant digit <br>
- *      <li> buf[4] &rarr; it's set less significant digit <br>
- *      <li> Example: 458 &rarr; '0','0','4','5','8' <br>
- * </ul>
- * @param[in] buf buffer to store the digits
- * @param[in] type type of sensor: 't' for temperature, 'h' for humidity and 'c' for co2
- * @return BAD_PARAMETER if reading is out of bounds, MISSING_SENSOR_TYPE if type is not 't'/'h'/'c', SUCCESS if no errors occour
-*/
-int getSensorReading(char *buf, char type);
 
 #endif
