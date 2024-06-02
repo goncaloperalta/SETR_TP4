@@ -4,112 +4,252 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/adc.h>
+#include <string.h>
 
-#define STACKSIZE 1024
-#define RECEIVE_BUFF_SIZE 10
-#define RECEIVE_TIMEOUT 100
+#include "cmd.h"
+#include "main.h"
 
+//Config ADC
+#define SLEEP_TIME_MS 	1000
+#define ADC_NODE		DT_NODELABEL(adc)		//DT_N_S_soc_S_adc_40007000
+static const struct device *adc_dev = DEVICE_DT_GET(ADC_NODE);
+
+#define ADC_RESOLUTION	10
+#define ADC_CHANNEL 	0
+#define ADC_PORT 		SAADC_CH_PSELP_PSELP_AnalogInput0	//AIN0
+#define ADC_REFERENCE	ADC_REF_INTERNAL					//0.6v
+#define ADC_GAIN 		ADC_GAIN_1_5						//ADC_REFERENCE*5
+
+struct adc_channel_cfg chl0_cfg = {
+	.gain = ADC_GAIN,
+	.reference = ADC_REFERENCE,
+	.acquisition_time = ADC_ACQ_TIME_DEFAULT,
+	.channel_id = ADC_CHANNEL,
+#ifdef	CONFIG_ADC_NRFX_SAADC
+	.input_positive = ADC_PORT
+#endif
+};
+
+int16_t sample_buffer[4];
+struct adc_sequence sequence = {
+	/* canais individuais serão adicionados abaixo */
+	.channels 	 = BIT(ADC_CHANNEL),
+	.buffer		 = sample_buffer,
+	
+	.buffer_size = sizeof(sample_buffer),
+	.resolution  = ADC_RESOLUTION
+};
+
+// Config threads
 #define THREAD0_PRIORITY 7
 #define THREAD1_PRIORITY 7
+K_MUTEX_DEFINE(test_mutex);
 
 
 // Buttons 1-4
-static const struct gpio_dt_spec button_1 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw0), gpios, {0});
-static const struct gpio_dt_spec button_2 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw1), gpios, {0});
-static const struct gpio_dt_spec button_3 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw2), gpios, {0});
-static const struct gpio_dt_spec button_4 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw3), gpios, {0});
+const struct gpio_dt_spec button_1 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw0), gpios, {0});
+const struct gpio_dt_spec button_2 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw1), gpios, {0});
+const struct gpio_dt_spec button_3 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw2), gpios, {0});
+const struct gpio_dt_spec button_4 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw3), gpios, {0});
 
 // LEDs 1-4
-static struct gpio_dt_spec led_1 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led0), gpios, {0});
-static struct gpio_dt_spec led_2 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led1), gpios, {0});
-static struct gpio_dt_spec led_3 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led2), gpios, {0});
-static struct gpio_dt_spec led_4 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led3), gpios, {0});
+const struct gpio_dt_spec led_1 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+const struct gpio_dt_spec led_2 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led1), gpios, {0});		
+const struct gpio_dt_spec led_3 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led2), gpios, {0});		
+const struct gpio_dt_spec led_4 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led3), gpios, {0});		
+
+
+// Config UART
+#define STACKSIZE 1024
+#define RECEIVE_BUFF_SIZE 20
+#define RECEIVE_TIMEOUT 100
 
 const struct device *uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
+
 static uint8_t tx_buf[] =   {"nRF Connect SDK Fundamentals Course\n\r"
                              "Press 1-3 on your keyboard to toggle LEDS 1-3 on your development kit\n\r"};
 static uint8_t rx_buf[RECEIVE_BUFF_SIZE] = {0};
-
-typedef struct{
-    int led[4];
-    int but[4];
-    int anRaw;
-    int anVal;
-} RTDB;
-
-static RTDB database;
-int initHardware();
-void initRTDB(RTDB *rtdb);
-void setLedButRTDB(RTDB *rtdb, bool *val){
-	for(int i = 0; i < 4; i++){
-		rtdb->led[i] = val[i];
-		rtdb->but[i] = val[i];
-	}
-}
+static uint8_t rx[RECEIVE_BUFF_SIZE] = {0};        				// Buffer para armazenar dados recebidos
+static int n = 0;
 
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data){
 	switch(evt->type){
 		case UART_RX_RDY:
-			
+
 			break;
 		case UART_RX_DISABLED:
-			uart_rx_enable(dev, rx_buf, sizeof rx_buf, RECEIVE_TIMEOUT);
+			uart_rx_enable(dev, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT);
 			break;
 		default:
 			break;
 	}
 }
 
+
+// Struct
+static RTDB database;
+void initRTDB(RTDB *rtdb);
+int initHardware();
+
+
+// Thread de atualização da RTDB
 void thread0(void){
-    if(!initHardware()){
-        printk("[NCS] Error initilizing Hardware\n");
-    }
     initRTDB(&database);
 	bool val[4];
+	int16_t raw_value;
+	float val_value;
+	int erro;
 
-    while(1){
-        printk("Thread 0\n");
+	while (1) {
+		erro = adc_read(adc_dev, &sequence);
+		if (erro != 0) {
+			printk("ADC reading failed with error %d. \n", erro);
+			return;
+		}
+
+		k_mutex_lock(&test_mutex, K_FOREVER);
 
 		val[0] = gpio_pin_get_dt(&button_1);
-		gpio_pin_set_dt(&led_1, val[0]);
+		database.but[0] = val[0];
 		val[1] = gpio_pin_get_dt(&button_2);
-		gpio_pin_set_dt(&led_2, val[1]);
+		database.but[1] = val[1];
 		val[2] = gpio_pin_get_dt(&button_3);
-		gpio_pin_set_dt(&led_3, val[2]);
+		database.but[2] = val[2];
 		val[3] = gpio_pin_get_dt(&button_4);
-		gpio_pin_set_dt(&led_4, val[3]);
+		database.but[3] = val[3];
+		gpio_pin_set_dt(&led_1, database.led[0]);
+		gpio_pin_set_dt(&led_2, database.led[1]);
+		gpio_pin_set_dt(&led_3, database.led[2]);
+		gpio_pin_set_dt(&led_4, database.led[3]);
+		raw_value = sample_buffer[0];
+		val_value = (float) raw_value * 0.0029;
+		val_value = val_value*60-60;
+		int32_t val_an = (int32_t) val_value;
+		database.anRaw = raw_value;
+		database.anVal = val_an;
 
-		setLedButRTDB(&database, val);
-
-        k_busy_wait(1000000);
-    }
+		k_mutex_unlock(&test_mutex);
+	}
 }
 
-void thread1(void){
-	// Commands
+// Thread para enviar e receber códigos
+// Commands
 	// # B [CS] ! 					- Read button state
 	// # L [1/2/3/4] [1/0] [CS] ! 	- Set LED state
 	// # A [CS] ! 					- Read Analog sensor
-	// # U [0000] [CS] !	 		- Change frequecy of update of the in/out digital signals of RTDB
-	// # S [0000] [CS] ! 			- Change frequecy of sampling of analog input signal
+	// # U [0000] [CS] !	 			- Change frequecy of update of the in/out digital signals of RTDB
+	// # S [0000] [CS] ! 				- Change frequecy of sampling of analog input signal
 	// # P [CS] ! 					- Toggle Analog reading mode
 
-    while(1){
-        printk("Thread 1\n");
-		
-		printk("{");
-		for(int i = 0; i < RECEIVE_BUFF_SIZE; i++){
-			printk("%c, ", rx_buf[i]);
-		}
-		printk("}\n");
-		
+void thread1(void){
+	
+	memset(rx_buf, 0, sizeof(rx_buf));
+	int err = 0;
+	int i = 0, j = 0;
+	uint8_t input_pos = 0;
 
-        k_busy_wait(1000000);
+
+    while(1) {
+		
+		input_pos = j;
+
+		// Processamento dos carateres recebidos	
+		while(rx_buf[input_pos] != '\0'){						// while que lê os digitos recebidos
+			
+			//printk("%c", rx_buf[input_pos]);
+			j = input_pos+1;
+			
+			rx[n] = rx_buf[input_pos];
+			
+			if (rx_buf[input_pos] == EOF_SYM) {					// Quando existir '!' envia código
+				if (input_pos == (RECEIVE_BUFF_SIZE-1)){
+					input_pos = 0;
+					j = 0;
+				}
+				break;
+			}
+
+			input_pos++;
+			if (input_pos == RECEIVE_BUFF_SIZE){
+				input_pos = 0;
+				j = 0;
+			}
+			n++;
+			if(n == RECEIVE_BUFF_SIZE){
+				n = 0;
+			}			
+		}
+		
+		// Processamento do código enviado (Terminação em '!')
+		if (rx[n] == EOF_SYM) {				// Se o ultimo caractere nao for '!' nao avança
+			i = 0;
+			if (rx[i] != SOF_SYM) {			// Se o primeiro caractere nao for '#' nao precisa avançar mais
+				for(i=0; i<n+1; i++) {
+					printk("%c ", rx[i]);
+				}
+				memset(rx, 0, sizeof(rx));
+				n=0;
+				goto end_thread;
+			}
+
+			k_mutex_lock(&test_mutex, K_FOREVER);	// lock mutex porque vai usar uma variavel (database) que thread0 tambem utiliza
+			
+			printk("\n{ ");
+			for(i=0; i<n+1; i++) {
+				printk("%c ", rx[i]);
+				rxChar(rx[i]);					// Envia para código ser processado
+			}
+			printk("}\n");
+
+			err = cmdProcessor(&database);		// Função de processamento 
+			printk("%d\n", err);
+			if (err == 1) {
+				print_tx();
+			}
+
+			k_mutex_unlock(&test_mutex);			// unlock mutex
+
+			memset(rx, 0, sizeof(rx));			// Mete a 0 o buffer de processamento
+			n=0;								
+
+					
+		}
+		end_thread:
+
+		memset(rx_buf, 0, sizeof(rx_buf));		// Mete a 0 o buffer da uart
+		k_busy_wait(1000);
     }
 }
 
-K_THREAD_DEFINE(thread0_id, STACKSIZE, thread0, NULL, NULL, NULL, THREAD0_PRIORITY, 0, 0);
-K_THREAD_DEFINE(thread1_id, STACKSIZE, thread1, NULL, NULL, NULL, THREAD1_PRIORITY, 0, 0);
+K_THREAD_STACK_DEFINE(thread_stack_0, STACKSIZE);
+struct k_thread thread_data_0;
+
+K_THREAD_STACK_DEFINE(thread_stack_1, STACKSIZE);
+struct k_thread thread_data_1;
+
+
+int main(void){
+	if(!initHardware()){
+        printk("[NCS] Error initilizing Hardware\n");
+    }
+
+	// Configurar os LEDs como saída para thread0
+	gpio_pin_configure_dt(&led_1, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&led_2, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&led_3, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&led_4, GPIO_OUTPUT);
+
+	k_thread_create(&thread_data_0, thread_stack_0, STACKSIZE,
+                    thread0, NULL, NULL, NULL,
+                    THREAD0_PRIORITY, 0, K_NO_WAIT);
+
+	k_thread_create(&thread_data_1, thread_stack_1, STACKSIZE,
+                    thread1, NULL, NULL, NULL,
+                    THREAD0_PRIORITY, 0, K_NO_WAIT);
+	return 0;
+}
 
 int initHardware(){
     int returnValue = 0;
@@ -227,9 +367,18 @@ int initHardware(){
 	if(returnValue){
 		return 1;
 	}
-	returnValue = uart_rx_enable(uart, rx_buf, sizeof rx_buf, RECEIVE_TIMEOUT);
+	returnValue = uart_rx_enable(uart, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT);
 	if(returnValue){
 		return 1;
+	}
+
+	// Check if ADC is ready
+	if (!device_is_ready(adc_dev)) {
+		printk("[NCS] Error: UART device not ready\n");
+	}
+	int err = adc_channel_setup(adc_dev, &chl0_cfg);
+	if (err != 0) {
+		printk("ADC adc_channel_setup failed with error %d.\n", err);
 	}
 	return 1;
 }
