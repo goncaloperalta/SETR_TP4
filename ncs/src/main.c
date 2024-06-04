@@ -93,6 +93,8 @@ static RTDB database;
 void initRTDB(RTDB *rtdb);
 int initHardware();
 
+int timer = 0;
+
 
 // Thread de atualização da RTDB
 void thread0(void){
@@ -101,6 +103,7 @@ void thread0(void){
 	int16_t raw_value;
 	float val_value;
 	int erro;
+	int time;
 
 	while (1) {
 		erro = adc_read(adc_dev, &sequence);
@@ -131,16 +134,20 @@ void thread0(void){
 		database.anVal = val_an;
 
 		k_mutex_unlock(&test_mutex);
+		time = timer*1000000;
+		//printk ("Tempo de espera: %d\n", time);
+		k_busy_wait(time);
 	}
 }
 
 // Thread para enviar e receber códigos
 // Commands
 	// # B [CS] ! 					- Read button state
-	// # L [1/2/3/4] [1/0] [CS] ! 	- Set LED state
-	// # A [CS] ! 					- Read Analog sensor
-	// # U [0000] [CS] !	 			- Change frequecy of update of the in/out digital signals of RTDB
-	// # S [0000] [CS] ! 				- Change frequecy of sampling of analog input signal
+	// # L [1/2/3/4] [CS] ! 		- Toggle LED state (Ligado ou desligado)
+	// # A [CS] ! 					- Read Analog sensor (Temperatura)
+	// # U [00] [CS] !	 			- Change frequecy of update of the in/out digital signals of RTDB
+	// So fiz os de cima
+	// # S [0000] [CS] ! 			- Change frequecy of sampling of analog input signal
 	// # P [CS] ! 					- Toggle Analog reading mode
 
 void thread1(void){
@@ -158,7 +165,7 @@ void thread1(void){
 		// Processamento dos carateres recebidos	
 		while(rx_buf[input_pos] != '\0'){						// while que lê os digitos recebidos
 			
-			//printk("%c", rx_buf[input_pos]);
+			printk("%c", rx_buf[input_pos]);
 			j = input_pos+1;
 			
 			rx[n] = rx_buf[input_pos];
@@ -395,3 +402,5 @@ void initRTDB(RTDB *rtdb){
     rtdb->anRaw = 0;
     rtdb->anVal = 0;
 }
+
+
