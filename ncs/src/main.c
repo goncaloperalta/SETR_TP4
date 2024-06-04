@@ -8,8 +8,8 @@
 #include <zephyr/drivers/adc.h>
 #include <string.h>
 
-#include "cmd.h"
-#include "main.h"
+#include "../includes/cmd.h"
+#include "../includes/main.h"
 
 //Config ADC
 #define SLEEP_TIME_MS 	1000
@@ -90,7 +90,6 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 
 // Struct
 static RTDB database;
-void initRTDB(RTDB *rtdb);
 int initHardware();
 
 int timer = 0;
@@ -158,11 +157,11 @@ void thread1(void){
 	uint8_t input_pos = 0;
 
 
-    while(1) {
-		
+    while(1) { 
 		input_pos = j;
 
-		// Processamento dos carateres recebidos	
+		// Processamento dos carateres recebidos
+		// Spent over 30 minutes looking at this and I still have no idea how it works
 		while(rx_buf[input_pos] != '\0'){						// while que lê os digitos recebidos
 			
 			printk("%c", rx_buf[input_pos]);
@@ -190,6 +189,7 @@ void thread1(void){
 		}
 		
 		// Processamento do código enviado (Terminação em '!')
+		// yeah good luck with that
 		if (rx[n] == EOF_SYM) {				// Se o ultimo caractere nao for '!' nao avança
 			i = 0;
 			if (rx[i] != SOF_SYM) {			// Se o primeiro caractere nao for '#' nao precisa avançar mais

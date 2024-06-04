@@ -1,5 +1,6 @@
 {
     "nrf-connect.applications": [
         "${workspaceFolder}\\ncs"
-    ]
+    ],
+    "cmake.configureOnOpen": true
 }

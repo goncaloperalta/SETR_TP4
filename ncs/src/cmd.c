@@ -11,8 +11,8 @@
 #include <string.h>
 #include <math.h>
 
-#include "cmd.h"
-#include "main.h"
+#include "../includes/cmd.h"
+#include "../includes/main.h"
 
 extern const struct gpio_dt_spec button_1;
 extern const struct gpio_dt_spec button_2;
