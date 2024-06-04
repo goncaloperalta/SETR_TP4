@@ -1,0 +1,12 @@
+/**
+
+@mainpage UART Real-Time communication
+
+@author Gonçalo Peralta & João Alvares
+
+This repository provides a set of functions and a driver app to emulate a real time database being 
+periodicaly updated by a thread, while the other takes care of the UART interface. Commands can be sent 
+to the Rx Buffer and information is generated in the Tx Buffer. LEDs can be updated, frequecy of operation and 
+such. 
+
+*/

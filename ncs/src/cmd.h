@@ -1,11 +1,8 @@
-
-/** @file cmdproc.h
+/** @file cmd.h
  * @brief Yields the functions and the structures of the program. Based on the provided base code
  *
- * This file has provides a set of functions to emulate a UART communication with sensors.
+ * This file has provides a set of functions to process a command in the UART.
  * 
- * Buffer circular no historico
- * ACK 
  * @author Gonçalo Peralta & João Alvares
  * @date 30 March 2024
  * @bug No known bugs.
@@ -40,27 +37,34 @@
  * The structure of a command in the Rx Buffer is: "# CMD CS !" (without the spaces) <br>
  * <ul>
  *      <li> # &rarr; Start of frame <br>
- *      <li> CMD &rarr; Type of command 'A'/'P'/'L'/'R', more information bellow <br>
+ *      <li> CMD &rarr; Type of command 'B'/'L'/'A'/'U', more information bellow <br>
  *      <li> CS &rarr; Modulo 256 3-bit checksum of the bytes in the CMD <br>
  *      <li> ! &rarr; End of frame <br>
  * </ul>     
  * Depending on the provided CMD a reponse command is sent to the Tx Buffer <br>
  * Types of CMD: <br>
  * <ul>
- *       <li> 'A' &rarr; Asks the value of all sensor readings. A command is sent to the Tx Buffer with structure "# CMD DATA CS !" where: <br>
+ *       <li> 'B' &rarr; Reads the state of all Buttons (1-4). A command is sent to the Tx Buffer with structure "# CMD DATA CS !" where: <br>
  *       <ul>
- *          <li> CMD &rarr; in this case will be the byte 'a' <br>
- *          <li> DATA &rarr; containts 11 bytes. first 3 correspond to temperature, next 3 to humidity and last 5 to co2. see getSensorReading() for more info <br>
+ *          <li> CMD &rarr; in this case will be the byte 'b' <br>
+ *          <li> DATA &rarr; containts 4 bytes of type '1' (pressed) or '0' (not pressed) for each button 1 to 4 <br>
  *          <li> CS &rarr; checksum of CMD and DATA bytes <br>
  *       </ul>
- *       <li> 'P','[t/h/c]' &rarr; Asks the value of a sepecific sensor designed by the second byte ('t'/'h'/'c'). A command is sent to the Tx Buffer with structure "# CMD DATA CS !" where: <br>
+ *       <li> 'L','[1/2/3/4]' &rarr; Toggles the state of the provided LED number. A command is sent to the Tx Buffer with structure "# CMD CS !" where: <br>
  *       <ul>
- *          <li> CMD &rarr; 'p','[t/h/c]' <br>
- *          <li> DATA &rarr; if temperature 3 bytes, humidity 3 bytes and co2 5 bytes <br>
+ *          <li> CMD &rarr; 'l' <br>
  *       </ul>
- *       <li> 'L' &rarr; Prints to the terminal the last 20 samples read of each sensor <br>
- *       <li> 'R' &rarr; Resets the history <br>
- * </ul>
+ *       <li> 'A' &rarr; Reads the analog sensor. A command is sent to the Tx Buffer with structure "# CMD DATA CS !" where: <br>
+ *       <ul>
+ *          <li> CMD &rarr; 'a' <br>
+ *          <li> DATA &rarr; 3 bytes corresponding to the value read <br>
+ *       </ul>
+ *       <li> 'U','[x/x]' &rarr; Change frequecy of update of the in/out digital signals of RTDB to xx MHz. A command is sent to the Tx Buffer with structure "# CMD CS !" where: <br>
+ *       <ul>
+ *          <li> CMD &rarr; 'u' <br>
+ *          <li> DATA &rarr; 'xx' (same as the provided one) <br>
+ *       </ul>
+ *  </ul>
  * @return EMPTY_BUFFER if Rx Buffer is empty, MISSING_EOF if '!' is not found, WRONG_CS if checksum is wrong, MISSING_SENSOR_TYPE sensor type is not found (for 'P' CMD), MISSING_SOF if a '#' is not found and UNKNOWN_CMD if the CMD is not identified
  */
 int cmdProcessor(RTDB *database);
