@@ -1,3 +1,11 @@
+/** @file main.h
+ * @brief Main function definition
+ * 
+ * @author Gonçalo Peralta & João Alvares
+ * @date 03 June 2024
+ * @bug No known bugs.
+*/
+
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
@@ -6,22 +14,23 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/adc.h>
+
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
-#include "../includes/cmd.h"
-#include "../includes/main.h"
+#include "../includes/cmdproc.h"
+#include "../includes/funcs.h"
 
-//Config ADC
+// Config ADC
 #define SLEEP_TIME_MS 	1000
-#define ADC_NODE		DT_NODELABEL(adc)		//DT_N_S_soc_S_adc_40007000
-static const struct device *adc_dev = DEVICE_DT_GET(ADC_NODE);
-
+#define ADC_NODE		DT_NODELABEL(adc)		// DT_N_S_soc_S_adc_40007000
 #define ADC_RESOLUTION	10
 #define ADC_CHANNEL 	0
-#define ADC_PORT 		SAADC_CH_PSELP_PSELP_AnalogInput0	//AIN0
-#define ADC_REFERENCE	ADC_REF_INTERNAL					//0.6v
-#define ADC_GAIN 		ADC_GAIN_1_5						//ADC_REFERENCE*5
-
+#define ADC_PORT 		SAADC_CH_PSELP_PSELP_AnalogInput0	// AIN0
+#define ADC_REFERENCE	ADC_REF_INTERNAL					// 0.6v
+#define ADC_GAIN 		ADC_GAIN_1_5						// ADC_REFERENCE*5
+static const struct device *adc_dev = DEVICE_DT_GET(ADC_NODE);
 struct adc_channel_cfg chl0_cfg = {
 	.gain = ADC_GAIN,
 	.reference = ADC_REFERENCE,
@@ -31,7 +40,6 @@ struct adc_channel_cfg chl0_cfg = {
 	.input_positive = ADC_PORT
 #endif
 };
-
 int16_t sample_buffer[4];
 struct adc_sequence sequence = {
 	/* canais individuais serão adicionados abaixo */
@@ -47,7 +55,6 @@ struct adc_sequence sequence = {
 #define THREAD1_PRIORITY 7
 K_MUTEX_DEFINE(test_mutex);
 
-
 // Buttons 1-4
 const struct gpio_dt_spec button_1 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw0), gpios, {0});
 const struct gpio_dt_spec button_2 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw1), gpios, {0});
@@ -60,82 +67,67 @@ const struct gpio_dt_spec led_2 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led1), gpios, {0}
 const struct gpio_dt_spec led_3 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led2), gpios, {0});		
 const struct gpio_dt_spec led_4 = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led3), gpios, {0});		
 
-
-// Config UART
-#define STACKSIZE 1024
+// UART
+#define STACKSIZE 2048
 #define RECEIVE_BUFF_SIZE 20
+#define TRANSMIT_BUFF_SIZE 50
 #define RECEIVE_TIMEOUT 100
-
 const struct device *uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
-
-static uint8_t tx_buf[] =   {"nRF Connect SDK Fundamentals Course\n\r"
-                             "Press 1-3 on your keyboard to toggle LEDS 1-3 on your development kit\n\r"};
+static uint8_t tx_buf[TRANSMIT_BUFF_SIZE] = "[UART] This is a UART test msg\n";
 static uint8_t rx_buf[RECEIVE_BUFF_SIZE] = {0};
-static uint8_t rx[RECEIVE_BUFF_SIZE] = {0};        				// Buffer para armazenar dados recebidos
-static int n = 0;
 
+// Vars
+RTDB database;
+int period = 500000; // Frequency of update of RTDB
+void updateFreq(int x){
+	period = x;
+}
+
+// UART Call-back, in case the buffer gets full. rx_buf will act as a circular buffer
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data){
 	switch(evt->type){
-		case UART_RX_RDY:
-
+		case UART_TX_DONE:
 			break;
 		case UART_RX_DISABLED:
-			uart_rx_enable(dev, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT);
+			uart_rx_enable(dev, rx_buf, sizeof rx_buf, RECEIVE_TIMEOUT);
 			break;
 		default:
 			break;
 	}
 }
 
-
-// Struct
-static RTDB database;
-int initHardware();
-
-int timer = 0;
-
-
 // Thread de atualização da RTDB
 void thread0(void){
     initRTDB(&database);
-	bool val[4];
-	int16_t raw_value;
-	float val_value;
-	int erro;
-	int time;
+	int err;
+	k_busy_wait(500000);
 
-	while (1) {
-		erro = adc_read(adc_dev, &sequence);
-		if (erro != 0) {
-			printk("ADC reading failed with error %d. \n", erro);
-			return;
+	printk("[TH0] Ready\n");
+	while(1){
+		err = adc_read(adc_dev, &sequence);
+		if(err != 0){
+			printk("ADC reading failed with error %d. \n", err);
 		}
 
-		k_mutex_lock(&test_mutex, K_FOREVER);
+		k_mutex_lock(&test_mutex, K_FOREVER);	// Refreshing the RTDB Lock the access
 
-		val[0] = gpio_pin_get_dt(&button_1);
-		database.but[0] = val[0];
-		val[1] = gpio_pin_get_dt(&button_2);
-		database.but[1] = val[1];
-		val[2] = gpio_pin_get_dt(&button_3);
-		database.but[2] = val[2];
-		val[3] = gpio_pin_get_dt(&button_4);
-		database.but[3] = val[3];
+		// Buttons
+		database.but[0] = gpio_pin_get_dt(&button_1);
+		database.but[1] = gpio_pin_get_dt(&button_2);
+		database.but[2] = gpio_pin_get_dt(&button_3);
+		database.but[3] = gpio_pin_get_dt(&button_4);
+		// LEDs
 		gpio_pin_set_dt(&led_1, database.led[0]);
 		gpio_pin_set_dt(&led_2, database.led[1]);
 		gpio_pin_set_dt(&led_3, database.led[2]);
 		gpio_pin_set_dt(&led_4, database.led[3]);
-		raw_value = sample_buffer[0];
-		val_value = (float) raw_value * 0.0029;
-		val_value = val_value*60-60;
-		int32_t val_an = (int32_t) val_value;
-		database.anRaw = raw_value;
-		database.anVal = val_an;
+		// Analog Read
+		database.anRaw = sample_buffer[0];
+		database.anVal = (float)database.anRaw * 3/(pow(2, ADC_RESOLUTION)); // Swaping scales where 3 = VDD
 
-		k_mutex_unlock(&test_mutex);
-		time = timer*1000000;
-		//printk ("Tempo de espera: %d\n", time);
-		k_busy_wait(time);
+		k_mutex_unlock(&test_mutex);			// Refresh done, time to unlock
+		printk("here\n");
+		k_busy_wait(period);
 	}
 }
 
@@ -148,115 +140,88 @@ void thread0(void){
 	// So fiz os de cima
 	// # S [0000] [CS] ! 			- Change frequecy of sampling of analog input signal
 	// # P [CS] ! 					- Toggle Analog reading mode
-
 void thread1(void){
-	
+	if(!initHardware()){
+        printk("[TH1] Error initilizing Hardware\n");
+    }
+	int endSym = 0; 	// Holds the position of the EOF_SYM (!)
+	int startSym = 0;	// Holds the position of the SOF_SYM (#)
+	int flag = 0;		// Goes to 1 if a # and ! are found
+	int err = 0;		// Error var handler
+	char resp[RECEIVE_BUFF_SIZE];	// Response command
+	char cmd[RECEIVE_BUFF_SIZE] = "\0";	// Received command
+	char c = '0';		// Dummy char
 	memset(rx_buf, 0, sizeof(rx_buf));
-	int err = 0;
-	int i = 0, j = 0;
-	uint8_t input_pos = 0;
+	memset(tx_buf, 0, sizeof(tx_buf));
 
-
-    while(1) { 
-		input_pos = j;
-
-		// Processamento dos carateres recebidos
-		// Spent over 30 minutes looking at this and I still have no idea how it works
-		while(rx_buf[input_pos] != '\0'){						// while que lê os digitos recebidos
-			
-			printk("%c", rx_buf[input_pos]);
-			j = input_pos+1;
-			
-			rx[n] = rx_buf[input_pos];
-			
-			if (rx_buf[input_pos] == EOF_SYM) {					// Quando existir '!' envia código
-				if (input_pos == (RECEIVE_BUFF_SIZE-1)){
-					input_pos = 0;
-					j = 0;
+	printk("[TH1] Ready\n");
+    while(1){
+		endSym = 0; startSym = 0; flag = 0; // Clear all vars 
+		
+		// Look for a EOF_SYM and store its position
+		// if found look for a SOF_SYM and store its position
+		// if also found means theres a possible command in the buffer so set flag to 1
+		// It also takes into account that rx_buf is circular
+		for(int i = 0; i < RECEIVE_BUFF_SIZE; i++){
+			if(rx_buf[i] == EOF_SYM){
+				endSym = i;
+				startSym = endSym;
+				for(int j = 0; j < RECEIVE_BUFF_SIZE; j++){
+					if(rx_buf[startSym] == SOF_SYM){
+						flag = 1;
+						break;
+					}
+					startSym--;
+					startSym = startSym == -1 ? RECEIVE_BUFF_SIZE-1 : startSym;
 				}
 				break;
 			}
+		}
 
-			input_pos++;
-			if (input_pos == RECEIVE_BUFF_SIZE){
-				input_pos = 0;
-				j = 0;
+		// If theres a command start processing
+		if(flag == 1){
+			// Next for loop creates a substring from the rx_buf with only the Command chars (from # to !)
+			for(int i = startSym; i != endSym+1; i++){
+				if(i == RECEIVE_BUFF_SIZE){
+					i = 0;
+				}
+				c = rx_buf[i];
+				strncat(cmd, &c, 1);
+				rx_buf[i] = 'X'; // Mark the command in rx_buf with X's
 			}
-			n++;
-			if(n == RECEIVE_BUFF_SIZE){
-				n = 0;
-			}			
+
+			// Add a NULL terminator to finalize the string
+			if(endSym > startSym){
+				cmd[endSym+1] = '\0';
+			}
+			else{
+				cmd[RECEIVE_BUFF_SIZE-startSym+endSym+1] = '\0';
+			}
+
+			// Proccess the command
+			err = cmdProcessor(cmd, resp, &database);
+			if(err == SUCCESS){
+				strcpy(tx_buf, resp);
+				printk("%s\n", tx_buf);
+			} else{
+				consoleLog(err);
+			}
+
+			memset(cmd, 0, sizeof(cmd));
+			memset(tx_buf, 0, sizeof(cmd));
+			flag = 0;	// Command was processed so set the flag to zero again
 		}
 		
-		// Processamento do código enviado (Terminação em '!')
-		// yeah good luck with that
-		if (rx[n] == EOF_SYM) {				// Se o ultimo caractere nao for '!' nao avança
-			i = 0;
-			if (rx[i] != SOF_SYM) {			// Se o primeiro caractere nao for '#' nao precisa avançar mais
-				for(i=0; i<n+1; i++) {
-					printk("%c ", rx[i]);
-				}
-				memset(rx, 0, sizeof(rx));
-				n=0;
-				goto end_thread;
-			}
-
-			k_mutex_lock(&test_mutex, K_FOREVER);	// lock mutex porque vai usar uma variavel (database) que thread0 tambem utiliza
-			
-			printk("\n{ ");
-			for(i=0; i<n+1; i++) {
-				printk("%c ", rx[i]);
-				rxChar(rx[i]);					// Envia para código ser processado
-			}
-			printk("}\n");
-
-			err = cmdProcessor(&database);		// Função de processamento 
-			printk("%d\n", err);
-			if (err == 1) {
-				print_tx();
-			}
-
-			k_mutex_unlock(&test_mutex);			// unlock mutex
-
-			memset(rx, 0, sizeof(rx));			// Mete a 0 o buffer de processamento
-			n=0;								
-
-					
-		}
-		end_thread:
-
-		memset(rx_buf, 0, sizeof(rx_buf));		// Mete a 0 o buffer da uart
-		k_busy_wait(1000);
+		// for(int i = 0; i < RECEIVE_BUFF_SIZE; i++){
+		// 	printk("%c", rx_buf[i]);
+		// }
+		// printk("\n");
+		k_busy_wait(5000);
     }
 }
 
-K_THREAD_STACK_DEFINE(thread_stack_0, STACKSIZE);
-struct k_thread thread_data_0;
-
-K_THREAD_STACK_DEFINE(thread_stack_1, STACKSIZE);
-struct k_thread thread_data_1;
-
-
-int main(void){
-	if(!initHardware()){
-        printk("[NCS] Error initilizing Hardware\n");
-    }
-
-	// Configurar os LEDs como saída para thread0
-	gpio_pin_configure_dt(&led_1, GPIO_OUTPUT);
-	gpio_pin_configure_dt(&led_2, GPIO_OUTPUT);
-	gpio_pin_configure_dt(&led_3, GPIO_OUTPUT);
-	gpio_pin_configure_dt(&led_4, GPIO_OUTPUT);
-
-	k_thread_create(&thread_data_0, thread_stack_0, STACKSIZE,
-                    thread0, NULL, NULL, NULL,
-                    THREAD0_PRIORITY, 0, K_NO_WAIT);
-
-	k_thread_create(&thread_data_1, thread_stack_1, STACKSIZE,
-                    thread1, NULL, NULL, NULL,
-                    THREAD0_PRIORITY, 0, K_NO_WAIT);
-	return 0;
-}
+K_THREAD_DEFINE(thread0_id, STACKSIZE, thread0, NULL, NULL, NULL, THREAD0_PRIORITY, 0, 0);
+K_THREAD_DEFINE(thread1_id, STACKSIZE, thread1, NULL, NULL, NULL, THREAD1_PRIORITY, 0, 0);
 
 int initHardware(){
     int returnValue = 0;
@@ -300,7 +265,6 @@ int initHardware(){
 		printk("[NCS] Error %d: failed to configure %s pin %d\n", returnValue, button_4.port->name, button_4.pin);
 		return 0;
 	}
-	
 	printk("[NCS] Set up button_1 at %s pin %d\n", button_1.port->name, button_1.pin);
 	printk("[NCS] Set up button_2 at %s pin %d\n", button_2.port->name, button_2.pin);
 	printk("[NCS] Set up button_3 at %s pin %d\n", button_3.port->name, button_3.pin);
@@ -355,11 +319,10 @@ int initHardware(){
 	}
 
 	// Turning LEDs off
-	gpio_pin_set_dt(&led_1, 1);
+	gpio_pin_set_dt(&led_1, 0);
 	gpio_pin_set_dt(&led_2, 0);
-	gpio_pin_set_dt(&led_3, 1);
+	gpio_pin_set_dt(&led_3, 0);
 	gpio_pin_set_dt(&led_4, 0);
-
 
     // Check if UART is ready
     if(!device_is_ready(uart)){
@@ -368,39 +331,42 @@ int initHardware(){
     printk("[NCS] Device UART ready\n");
 	returnValue = uart_callback_set(uart, uart_cb, NULL);
 	if(returnValue){
-		return 1;
+		printk("[NCS] Error: Failled to set up UART callback\n");
+		return 0;
 	}
 	returnValue = uart_tx(uart, tx_buf, sizeof(tx_buf), SYS_FOREVER_MS);
 	if(returnValue){
-		return 1;
+		printk("[NCS] Error: Failled to send TX buffer\n");
+		return 0;
 	}
 	returnValue = uart_rx_enable(uart, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT);
 	if(returnValue){
-		return 1;
+		printk("[NCS] Error: Failled to set up UART\n");
+		return 0;
 	}
+	printk("[NCS] UART device ready\n");
 
 	// Check if ADC is ready
-	if (!device_is_ready(adc_dev)) {
-		printk("[NCS] Error: UART device not ready\n");
+	if(!device_is_ready(adc_dev)){
+		printk("[NCS] Error: ADC device not ready\n");
 	}
-	int err = adc_channel_setup(adc_dev, &chl0_cfg);
-	if (err != 0) {
-		printk("ADC adc_channel_setup failed with error %d.\n", err);
+	returnValue = adc_channel_setup(adc_dev, &chl0_cfg);
+	if(returnValue != 0){
+		printk("[NCS] Error: ADC adc_channel_setup failed with error %d.\n", returnValue);
 	}
+	printk("[NCS] ADC device ready\n");
 	return 1;
 }
 
-void initRTDB(RTDB *rtdb){
-    rtdb->led[0] = 0;
-    rtdb->led[1] = 0;
-    rtdb->led[2] = 0;
-    rtdb->led[3] = 0;
-    rtdb->but[0] = 0;
-    rtdb->but[1] = 0;
-    rtdb->but[2] = 0;
-    rtdb->but[3] = 0;
-    rtdb->anRaw = 0;
-    rtdb->anVal = 0;
-}
-
-
+// void initRTDB(RTDB *rtdb){
+//     rtdb->led[0] = 0;
+//     rtdb->led[1] = 0;
+//     rtdb->led[2] = 0;
+//     rtdb->led[3] = 0;
+//     rtdb->but[0] = 0;
+//     rtdb->but[1] = 0;
+//     rtdb->but[2] = 0;
+//     rtdb->but[3] = 0;
+//     rtdb->anRaw = 0;
+//     rtdb->anVal = 0;
+// }

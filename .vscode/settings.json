@@ -2,5 +2,12 @@
     "nrf-connect.applications": [
         "${workspaceFolder}\\ncs"
     ],
-    "cmake.configureOnOpen": true
+    "cmake.configureOnOpen": true,
+    "files.associations": {
+        "string.h": "c",
+        "main.h": "c",
+        "math.h": "c",
+        "buff_circ.h": "c",
+        "cmdproc.h": "c"
+    }
 }

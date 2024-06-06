@@ -3,4 +3,4 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(ncs)
 
-target_sources(app PRIVATE src/main.c src/cmd.c)
+target_sources(app PRIVATE src/main.c src/cmdproc.c src/funcs.c)
