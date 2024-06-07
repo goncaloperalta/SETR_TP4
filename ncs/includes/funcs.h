@@ -45,4 +45,12 @@ void updateFreq(int x);
  */
 int initHardware();
 
+/**
+ * @brief Prints the error with the received command to the terminal
+ * 
+ * @param[in] err Error code
+ * @return void
+ */
+void consoleLog(int err);
+
 #endif

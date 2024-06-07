@@ -6,6 +6,14 @@
  * @date 03 June 2024
  * @bug No known bugs.
  */
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/printk.h>
+
+#include <stdlib.h>
+
 #include "../includes/funcs.h"
 
 void initRTDB(RTDB *rtdb){

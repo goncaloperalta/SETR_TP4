@@ -1,7 +1,6 @@
 #include "../unity/unity.h"
 #include "../unity/unity_internals.h"
-#include "./no_nfr/cmd_no_nfr.h"
-#include "./no_nfr/main_no_nfr.h"
+#include "./no_nfr/cmdproc.h"
 #include <string.h>
 
 void setUp(){}
@@ -9,135 +8,90 @@ void tearDown(){}
 
 RTDB database;
 
-void test_cmdProcessor_EmptyBuffer(){ // Tests a return to EMPTY_BUFFER
-    TEST_ASSERT_EQUAL_INT(EMPTY_BUFFER, cmdProcessor(&database));
-}
-
 void test_cmdProcessor_Bcmd(){ // Tests for the B command
-    int len = 0;
-    char buf[20];
+    char buf[20], resp[20];
+    database.but[0] = 1;
+    database.but[1] = 0;
+    database.but[2] = 0;
+    database.but[3] = 1;
 
-    // Test Temperature request
-    strcpy(buf, "#B066!"); // expected return #b0000034!
-    for(int i = 0; i < 7; i++){
-        rxChar(buf[i]);
-    }
-    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(&database));
-
-    getTxBuffer(buf, &len);
-    TEST_ASSERT_EQUAL_INT(10, len);
-    TEST_ASSERT_EQUAL_STRING_LEN("#b0000034!", buf, len);
-
+    strcpy(buf, "#B066!"); // expected return #b1001036!
+    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(buf, resp, &database));
+    TEST_ASSERT_EQUAL_STRING_LEN("#b1001036!", resp, 11);
 }
 
 void test_cmdProcessor_Lcmd(){ // Test for L cmd
-    int len = 0;
-    char buf[20];
+    char buf[20], resp[20];
+    database.led[0] = 0;
 
-    strcpy(buf, "#L1125!"); // expected return #l108!
-    for(int i = 0; i < 7; i++){
-        rxChar(buf[i]);
-    }
-    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(&database));
-    getTxBuffer(buf, &len);
-    TEST_ASSERT_EQUAL_INT(6, len);
-    TEST_ASSERT_EQUAL_STRING_LEN("#l108!", buf, len);
+    // Command to toggle LED 1
+    strcpy(buf, "#L1125!"); // expected return #l11206!
+
+    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(buf, resp, &database));
+    TEST_ASSERT_EQUAL_STRING_LEN("#l11206!", resp, 9);
+    TEST_ASSERT_EQUAL_INT(1, database.led[0]); // Check if LED 1 is on
 }
 
 void test_cmdProcessor_Acmd(){ // Test for A cmd
-    int len = 0;
-    char buf[20];
-
+    char buf[20], resp[20];
+    database.anRaw = 1021;
+    
     strcpy(buf, "#A065!");
-    for(int i = 0; i < 6; i++){ // #a010242!
-		rxChar(buf[i]);
-	}
-    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(&database));
-    getTxBuffer(buf, &len);
-    TEST_ASSERT_EQUAL_INT(9, len);
-    TEST_ASSERT_EQUAL_STRING_LEN("#a010242!", buf, len);
+    
+    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(buf, resp, &database));
+    TEST_ASSERT_EQUAL_STRING_LEN("#a1021037!", resp, 11);
 }
 
 void test_cmdProcessor_Ucmd(){ // Test for R cmd
-    char buf[20];
-    int len = 0;
+    char buf[20], resp[20];
 
     strcpy(buf, "#U02183!"); // #u02215!
-    for(int i = 0; i < 8; i++){
-		rxChar(buf[i]);
-	}    
-    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(&database));
-    getTxBuffer(buf, &len);
-    TEST_ASSERT_EQUAL_INT(8, len);
-    TEST_ASSERT_EQUAL_STRING_LEN("#u02215!", buf, len);
+
+    TEST_ASSERT_EQUAL_INT(SUCCESS, cmdProcessor(buf, resp, &database));
+    TEST_ASSERT_EQUAL_STRING_LEN("#u02215!", resp, 9);
 }
 
 void test_cmdProcessor_Checksum(){ // Sending commands with wrong checksum
-    int len = 0;
-    char buf[20];
+    char buf[20], resp[20];
     
-    strcpy(buf, "#B234!"); // Command P
-    for(int i = 0; i < 8; i++){
-		rxChar(buf[i]);
-	}
-	TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(&database));
+    strcpy(buf, "#B234!");      // Command B
+	TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(buf, resp, &database));
     
-    strcpy(buf, "#L1020!"); // Command A
-    for(int i = 0; i < 7; i++){
-		rxChar(buf[i]);
-	}
-    TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(&database));
+    strcpy(buf, "#L1020!");     // Command L
+    TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(buf, resp, &database));
     
-    strcpy(buf, "#A050!"); // Command L
-    for(int i = 0; i < 6; i++){
-		rxChar(buf[i]);
-	}
-	TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(&database)); 
+    strcpy(buf, "#A050!");      // Command A
+	TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(buf, resp, &database)); 
 	
-	strcpy(buf, "#U02185!"); // Command R
-    for(int i = 0; i < 8; i++){
-		rxChar(buf[i]);
-	}
-	TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(&database));
+	strcpy(buf, "#U02185!");    // Command U
+	TEST_ASSERT_EQUAL_INT(WRONG_CS, cmdProcessor(buf, resp, &database));
 }
 
 void test_cmdProcessor_UnknownCommand(){ // Sending an different unknown command to the system
-    char buf[20];
+    char buf[20], resp[20];
 
     strcpy(buf, "#H72!");
-    for(int i = 0; i < 8; i++){
-		rxChar(buf[i]);
-	}
-	TEST_ASSERT_EQUAL_INT(UNKNOWN_CMD, cmdProcessor(&database));
+	TEST_ASSERT_EQUAL_INT(UNKNOWN_CMD, cmdProcessor(buf, resp, &database));
 }
 
 void test_cmdProcessor_MissingSOF(){ // Sending a command without the Start of Frame symbold '#'
-    char buf[20];
+    char buf[20], resp[20];
 
     strcpy(buf, "Pt196!"); 	// missing #
-    for(int i = 0; i < 8; i++){
-        rxChar(buf[i]);
-    }
-    TEST_ASSERT_EQUAL_INT(MISSING_SOF, cmdProcessor(&database));
+    TEST_ASSERT_EQUAL_INT(MISSING_SOF, cmdProcessor(buf, resp, &database));
 }
 
 int main(void){
-    resetTxBuffer();
-	resetRxBuffer();
-    initRTDB(&database);
 
     UNITY_BEGIN();
     
-    RUN_TEST(test_cmdProcessor_EmptyBuffer);
-    RUN_TEST(test_cmdProcessor_Bcmd);
-    RUN_TEST(test_cmdProcessor_EmptyBuffer);
-    RUN_TEST(test_cmdProcessor_Lcmd);
-    RUN_TEST(test_cmdProcessor_Acmd);
-    RUN_TEST(test_cmdProcessor_Ucmd);
-    RUN_TEST(test_cmdProcessor_Acmd);
-    RUN_TEST(test_cmdProcessor_Checksum);
-    RUN_TEST(test_cmdProcessor_UnknownCommand);
-    RUN_TEST(test_cmdProcessor_MissingSOF);
+    RUN_TEST(test_cmdProcessor_Bcmd);           // Tests for B command
+    RUN_TEST(test_cmdProcessor_Lcmd);           // Tests for L command
+    RUN_TEST(test_cmdProcessor_Acmd);           // Tests for A command 
+    RUN_TEST(test_cmdProcessor_Ucmd);           // Tests for U command
+    RUN_TEST(test_cmdProcessor_Checksum);       // Tests for the Checksum
+    RUN_TEST(test_cmdProcessor_UnknownCommand); // Tests for command structure
+    RUN_TEST(test_cmdProcessor_MissingSOF);     // Tests for commands without SOF
 
     UNITY_END();
 

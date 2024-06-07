@@ -1,4 +1,4 @@
-/** @file cmdproc.h
+/** @file cmdproc.c
  * @brief Definition of the function for the Command Processor module
  * 
  * @author Gonçalo Peralta & João Alvares
@@ -33,7 +33,6 @@ int cmdProcessor(char *cmd, char *resp, RTDB *database){
 	switch(cmd[1]){
 		case 'B': // # B [CS] ! - Read button state, resp: # b [0/0/0/0] [CS] !
 			// Validate frame structure
-			printk("Here\n");
 			if(cmd[5] != EOF_SYM){
 				return MISSING_EOF;
 			}
@@ -134,7 +133,6 @@ int cmdProcessor(char *cmd, char *resp, RTDB *database){
 			// Response Command
 			var = ((cmd[2] - '0')*10 + (cmd[3] - '0'))*pow(10, 6); // New frequecy of update
 			updateFreq(var);
-			printk("Var = %d\n", var);
 			sprintf(resp, "u%c%c", cmd[2], cmd[3]);
 			sprintf(checksum, "%03d", calcChecksum((unsigned char*)&(resp[0]), 3));
 			sprintf(resp, "#u%c%c%s!", cmd[2], cmd[3], checksum);

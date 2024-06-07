@@ -1,9 +1,9 @@
-/** @file main.h
+/** @file main.c
  * @brief Main function definition
  * 
  * @author Gonçalo Peralta & João Alvares
  * @date 03 June 2024
- * @bug No known bugs.
+ * @bug Line 204, uart_tx() function not working as expected, it only send some character from the tx_buf so it was replaced with printk()
 */
 
 #include <zephyr/kernel.h>
@@ -78,7 +78,7 @@ static uint8_t rx_buf[RECEIVE_BUFF_SIZE] = {0};
 
 // Vars
 RTDB database;
-int period = 500000; // Frequency of update of RTDB
+int period = 5000; // Frequency of update of RTDB
 void updateFreq(int x){
 	period = x;
 }
@@ -100,8 +100,7 @@ static void uart_cb(const struct device *dev, struct uart_event *evt, void *user
 void thread0(void){
     initRTDB(&database);
 	int err;
-	k_busy_wait(500000);
-
+	k_busy_wait(50000); // Wait for TH1 to initilize Hardware
 	printk("[TH0] Ready\n");
 	while(1){
 		err = adc_read(adc_dev, &sequence);
@@ -126,7 +125,7 @@ void thread0(void){
 		database.anVal = (float)database.anRaw * 3/(pow(2, ADC_RESOLUTION)); // Swaping scales where 3 = VDD
 
 		k_mutex_unlock(&test_mutex);			// Refresh done, time to unlock
-		printk("here\n");
+
 		k_busy_wait(period);
 	}
 }
@@ -202,7 +201,7 @@ void thread1(void){
 			err = cmdProcessor(cmd, resp, &database);
 			if(err == SUCCESS){
 				strcpy(tx_buf, resp);
-				printk("%s\n", tx_buf);
+				printk("%s\n", tx_buf); // uart_tx(uart, tx_buf, sizeof(tx_buf), SYS_FOREVER_MS); does not work as expected for some reason
 			} else{
 				consoleLog(err);
 			}
@@ -357,16 +356,3 @@ int initHardware(){
 	printk("[NCS] ADC device ready\n");
 	return 1;
 }
-
-// void initRTDB(RTDB *rtdb){
-//     rtdb->led[0] = 0;
-//     rtdb->led[1] = 0;
-//     rtdb->led[2] = 0;
-//     rtdb->led[3] = 0;
-//     rtdb->but[0] = 0;
-//     rtdb->but[1] = 0;
-//     rtdb->but[2] = 0;
-//     rtdb->but[3] = 0;
-//     rtdb->anRaw = 0;
-//     rtdb->anVal = 0;
-// }
